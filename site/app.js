@@ -303,18 +303,134 @@ function layoutGrid(episodes) {
 }
 
 // =====================================================================
+// Settings: config.json defaults + this browser's changes
+// =====================================================================
+
+const DEFAULT_CONFIG = {
+  shark: { pastEpisodes: 10, futureEpisodes: 10, minDrop: 1.0 },
+  minEpisodesForStats: 30,
+  showSharkSettingsPanel: true,
+};
+let config = DEFAULT_CONFIG;
+
+async function loadConfig() {
+  try {
+    const resp = await fetch("config.json", { cache: "no-cache" });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const c = await resp.json();
+    config = {
+      ...DEFAULT_CONFIG, ...c,
+      shark: { ...DEFAULT_CONFIG.shark, ...(c.shark || {}) },
+    };
+  } catch (err) {
+    console.warn("config.json not loaded, using built-in defaults:", err);
+  }
+}
+
+// Browser storage can be unavailable (private windows, blocked cookies); never let that break the page.
+function storageGet(key) {
+  try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
+}
+function storageSet(key, value) {
+  try {
+    if (value == null) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(value));
+  } catch { /* ignore */ }
+}
+
+function defaultSettings() {
+  return {
+    past: config.shark.pastEpisodes,
+    future: config.shark.futureEpisodes,
+    drop: config.shark.minDrop,
+    minEpisodes: config.minEpisodesForStats,
+  };
+}
+
+/** The settings in effect: config.json, plus this browser's changes if the panel is enabled. */
+function currentSettings() {
+  const saved = config.showSharkSettingsPanel ? storageGet("sharkSettings") : null;
+  return { ...defaultSettings(), ...(saved || {}) };
+}
+
+const panelInputs = {
+  past: document.getElementById("set-past"),
+  future: document.getElementById("set-future"),
+  drop: document.getElementById("set-drop"),
+  minEpisodes: document.getElementById("set-min"),
+};
+
+function fillPanel() {
+  const s = currentSettings();
+  for (const [key, el] of Object.entries(panelInputs)) el.value = s[key];
+  const d = defaultSettings();
+  document.getElementById("panel-defaults").textContent =
+    `Defaults (from config.json): ${d.past} past · ${d.future} future · ${d.drop.toFixed(1)} drop · ${d.minEpisodes} episodes.`;
+}
+
+function setupPanel() {
+  const panel = document.getElementById("shark-panel");
+  panel.hidden = !config.showSharkSettingsPanel;
+  if (panel.hidden) return;
+  panel.open = storageGet("sharkPanelOpen") ?? true;
+  panel.addEventListener("toggle", () => storageSet("sharkPanelOpen", panel.open));
+  fillPanel();
+
+  for (const el of Object.values(panelInputs)) {
+    el.addEventListener("input", () => {
+      // Only apply complete, valid values; ignore half-typed ones like "" or "0."
+      if (!Object.values(panelInputs).every(i => i.value !== "" && i.checkValidity())) return;
+      const s = {
+        past: Math.round(Number(panelInputs.past.value)),
+        future: Math.round(Number(panelInputs.future.value)),
+        drop: Number(panelInputs.drop.value),
+        minEpisodes: Math.round(Number(panelInputs.minEpisodes.value)),
+      };
+      const d = defaultSettings();
+      const same = Object.keys(s).every(k => s[k] === d[k]);
+      storageSet("sharkSettings", same ? null : s);
+      render();
+    });
+  }
+  document.getElementById("set-reset").addEventListener("click", () => {
+    storageSet("sharkSettings", null);
+    fillPanel();
+    render();
+  });
+}
+
+const stretchToggle = document.getElementById("stretch-colors");
+stretchToggle.checked = !!storageGet("stretchColors");
+stretchToggle.addEventListener("change", () => {
+  storageSet("stretchColors", stretchToggle.checked);
+  render();
+});
+
+// =====================================================================
 // Colors
 // =====================================================================
 
+// When "stretch colors" is on, the show's lowest rating maps to red and its highest to green.
+let colorRange = null;   // { min, max } or null for the normal 0–10 scale
+
+/** Position on the 0–10 color scale for a rating (after stretching, if on). */
+function colorPosition(rating) {
+  const pos = colorRange ? (rating - colorRange.min) / (colorRange.max - colorRange.min) * 10 : rating;
+  return Math.max(0, Math.min(10, pos));
+}
+
 /** Red (0.0) -> yellow (5.0) -> green (10.0): hue goes 0° -> 60° -> 120°. */
+function hueColor(pos) {
+  return `hsl(${pos * 12} 72% 52%)`;
+}
+
 function ratingColor(rating) {
-  const hue = Math.max(0, Math.min(10, rating)) * 12;
-  return `hsl(${hue} 72% 52%)`;
+  return hueColor(colorPosition(rating));
 }
 
 /** Dark or white text, whichever is easier to read on the given rating's color. */
 function ratingTextColor(rating) {
-  const [r, g, b] = hslToRgb(Math.max(0, Math.min(10, rating)) * 12, 0.72, 0.52);
+  const [r, g, b] = hslToRgb(colorPosition(rating) * 12, 0.72, 0.52);
   const lum = [r, g, b]
     .map(c => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
     .reduce((sum, c, i) => sum + c * [0.2126, 0.7152, 0.0722][i], 0);
@@ -336,41 +452,121 @@ function ratingBadge(rating) {
          `${rating.toFixed(1)}</span>`;
 }
 
+function renderLegend() {
+  const stops = [0, 2.5, 5, 7.5, 10].map(p => `${hueColor(p)} ${p * 10}%`).join(", ");
+  const [lo, hi] = colorRange ? [colorRange.min, colorRange.max] : [0, 10];
+  return `<span>${lo.toFixed(1)}</span>` +
+         `<span class="legend-bar" style="background:linear-gradient(to right, ${stops})"></span>` +
+         `<span>${hi.toFixed(1)}</span>` +
+         `<span class="legend-unrated">${ratingBadge(null)} not rated</span>`;
+}
+
 // =====================================================================
-// Selected show: header, grid, other episodes
+// Jump-the-shark detector
+// =====================================================================
+
+/**
+ * `sequence` is the show's rated, numbered episodes in airing order. For each episode with
+ * enough episodes around it, compare the average of the `past` episodes before it with the
+ * average of it and the episodes after it (`future` in total). Stores pastAvg/nextAvg on each
+ * episode (for the hover card) and returns the episode with the biggest drop, if that drop is
+ * at least `minDrop`.
+ */
+function findShark(sequence, { past, future, drop: minDrop }) {
+  for (const e of sequence) { e.pastAvg = e.nextAvg = null; }
+  const sums = [0];
+  for (const e of sequence) sums.push(sums[sums.length - 1] + e.rating);
+
+  let biggest = null;   // the largest drop anywhere, even if below minDrop
+  for (let i = past; i + future <= sequence.length; i++) {
+    const e = sequence[i];
+    e.pastAvg = (sums[i] - sums[i - past]) / past;
+    e.nextAvg = (sums[i + future] - sums[i]) / future;
+    const d = e.pastAvg - e.nextAvg;
+    if (!biggest || d > biggest.drop + 1e-9) biggest = { episode: e, drop: d };
+  }
+  // Compare with a little tolerance so 8.4 - 7.4 counts as a 1.0 drop despite rounding.
+  const jumped = biggest && biggest.drop >= minDrop - 1e-9;
+  return { shark: jumped ? biggest.episode : null, biggest };
+}
+
+// =====================================================================
+// Selected show
 // =====================================================================
 
 const showSection = document.getElementById("show");
-const showBody = document.getElementById("show-body");
-let currentShowId = null;      // guards against a slow download for a previously chosen show
-let episodesById = new Map();  // episode id -> episode, for the hover card
+const showStatus = document.getElementById("show-status");
+const showContent = document.getElementById("show-content");
+let currentShowId = null;   // guards against a slow download for a previously chosen show
+let state = null;           // everything about the show on screen (see showSelected)
+
+function setStatus(html, isError) {
+  showStatus.innerHTML = html;
+  showStatus.className = isError ? "error" : "loading";
+  showStatus.hidden = !html;
+}
 
 async function showSelected(show) {
   currentShowId = show.id;
   hideCard();
   showSection.hidden = false;
+  showContent.hidden = true;
   document.getElementById("show-title").textContent = show.title;
   renderShowInfo(show);
-  showBody.innerHTML = '<p class="loading">Loading episodes…</p>';
+  setStatus("Loading episodes…");
 
   let episodes;
   try {
     episodes = await loadEpisodes(show.id);
   } catch (err) {
     if (currentShowId === show.id) {
-      showBody.innerHTML = `<p class="error">Sorry, the episodes failed to load (${escapeHtml(err.message)}). ` +
-                           "Try choosing the show again.</p>";
+      setStatus(`Sorry, the episodes failed to load (${escapeHtml(err.message)}). ` +
+                "Try choosing the show again.", true);
     }
     return;
   }
   if (currentShowId !== show.id) return;   // the user picked a different show meanwhile
 
   const rated = rankEpisodes(episodes);
-  episodesById = new Map(episodes.map(e => [e.id, e]));
+  state = {
+    show,
+    episodes,
+    rated,                                          // best first
+    byId: new Map(episodes.map(e => [e.id, e])),
+    grid: layoutGrid(episodes),
+    // rated, numbered episodes in airing order (the episode files are already sorted that way)
+    sequence: episodes.filter(e => e.season != null && e.episode != null && e.rating != null),
+  };
   renderShowInfo(show, episodes.length, rated.length);
+  setStatus("");
+  showContent.hidden = false;
+  render();
+}
 
-  const grid = layoutGrid(episodes);
-  showBody.innerHTML = renderLegend() + renderGrid(grid, rated.length) + renderOther(grid.other);
+/** Draw everything that depends on the settings. Called on load and whenever a setting changes. */
+function render() {
+  if (!state) return;
+  hideCard();
+  const settings = currentSettings();
+
+  // Color range for "stretch colors" (needs at least a little spread to be meaningful).
+  colorRange = null;
+  if (stretchToggle.checked && state.rated.length) {
+    const max = state.rated[0].rating, min = state.rated[state.rated.length - 1].rating;
+    if (max - min >= 0.1) colorRange = { min, max };
+  }
+
+  const enough = state.sequence.length >= settings.minEpisodes;
+  const result = enough ? findShark(state.sequence, settings) : { shark: null, biggest: null };
+  if (!enough) for (const e of state.sequence) e.pastAvg = e.nextAvg = null;
+  state.settings = settings;
+  state.shark = result.shark;
+
+  document.getElementById("legend").innerHTML = renderLegend();
+  document.getElementById("show-grid").innerHTML = renderGrid(state.grid, state.rated.length, state.shark);
+  document.getElementById("show-shark").innerHTML = renderShark(result, settings, enough);
+  document.getElementById("show-tops").innerHTML = enough ? renderTops(state.rated) : "";
+  document.getElementById("show-other").innerHTML = renderOther(state.grid.other);
 }
 
 function renderShowInfo(show, episodeCount, ratedCount) {
@@ -385,12 +581,8 @@ function renderShowInfo(show, episodeCount, ratedCount) {
     ` · <a href="https://www.imdb.com/title/${imdbId(show.id)}/" target="_blank" rel="noopener">IMDb ↗</a>`;
 }
 
-function renderLegend() {
-  const stops = [0, 2.5, 5, 7.5, 10].map(r => `${ratingColor(r)} ${r * 10}%`).join(", ");
-  return `<div class="legend" aria-hidden="true">
-            <span>0.0</span><span class="legend-bar" style="background:linear-gradient(to right, ${stops})"></span><span>10.0</span>
-            <span class="legend-unrated">${ratingBadge(null)} not rated</span>
-          </div>`;
+function episodeCode(e) {
+  return e.season != null && e.episode != null ? `S${e.season}E${e.episode}` : "Special";
 }
 
 function episodeLink(e, content, className) {
@@ -398,7 +590,7 @@ function episodeLink(e, content, className) {
          `rel="noopener" data-episode="${e.id}">${content}</a>`;
 }
 
-function renderGrid({ seasons, seasonNumbers, first, last, packed }, ratedCount) {
+function renderGrid({ seasons, seasonNumbers, first, last, packed }, ratedCount, shark) {
   if (!seasonNumbers.length) {
     return '<p class="note">IMDb has no season/episode numbers for this show, so there is no grid. ' +
            "Its episodes are listed below.</p>";
@@ -419,10 +611,14 @@ function renderGrid({ seasons, seasonNumbers, first, last, packed }, ratedCount)
     for (const n of columns) {
       const e = row.get(n);
       if (!e) { html += '<td class="empty"></td>'; continue; }
+      const classes = [];
+      if (e.rating == null) classes.push("unrated");
+      if (e === shark) classes.push("shark");
       const style = e.rating != null
         ? ` style="background:${ratingColor(e.rating)};color:${ratingTextColor(e.rating)}"` : "";
-      const label = e.rating != null ? e.rating.toFixed(1) : "—";
-      html += `<td${e.rating == null ? ' class="unrated"' : ""}${style}>` +
+      let label = e.rating != null ? e.rating.toFixed(1) : "—";
+      if (e === shark) label += '<span class="shark-icon" aria-label="jumped the shark">🦈</span>';
+      html += `<td${classes.length ? ` class="${classes.join(" ")}"` : ""}${style}>` +
               episodeLink(e, label, "cell") + "</td>";
     }
     html += "</tr>";
@@ -430,6 +626,72 @@ function renderGrid({ seasons, seasonNumbers, first, last, packed }, ratedCount)
   html += "</tbody></table></div>";
   if (!ratedCount) html += '<p class="note">None of these episodes have IMDb ratings yet.</p>';
   return html;
+}
+
+function plural(n, word) {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+/** "the 10 episodes before it" / "it and the 9 after it" — worded to match the settings. */
+function windowWords({ past, future }) {
+  const before = past === 1 ? "the episode before it" : `the ${past} episodes before it`;
+  const after = future === 1 ? "the episode itself" :
+                future === 2 ? "it and the episode after it" : `it and the ${future - 1} episodes after it`;
+  return { before, after };
+}
+
+function renderShark({ shark, biggest }, settings, enough) {
+  if (!enough) {
+    return `<p class="note stats-note">Top 5 / Bottom 5 and shark detection need at least ` +
+           `${plural(settings.minEpisodes, "rated episode")} with season and episode numbers; ` +
+           `this show has ${state.sequence.length}.</p>`;
+  }
+  if (!biggest) {
+    return `<div class="shark-banner calm">Not enough episodes to compare ` +
+           `${settings.past} before and ${settings.future} after any episode.</div>`;
+  }
+  const w = windowWords(settings);
+  if (shark) {
+    const title = escapeHtml(shark.title || "Untitled");
+    return `<div class="shark-banner jumped">
+      <div class="shark-big" aria-hidden="true">🦈</div>
+      <div>
+        <strong>This show jumped the shark at ${episodeCode(shark)}: ` +
+        `${episodeLink(shark, `“${title}”`, "title-link")}</strong>${shark.year ? ` (${shark.year})` : ""}<br>
+        ${capitalize(w.before)} averaged <b>${shark.pastAvg.toFixed(2)}</b>; ` +
+        `${w.after} averaged <b>${shark.nextAvg.toFixed(2)}</b> — ` +
+        `a drop of <b>${(shark.pastAvg - shark.nextAvg).toFixed(2)}</b> points.
+      </div>
+    </div>`;
+  }
+  const b = biggest.episode;
+  const where = biggest.drop > 0
+    ? `The biggest drop was ${biggest.drop.toFixed(2)} points, at ` +
+      `${episodeLink(b, `${episodeCode(b)} “${escapeHtml(b.title || "Untitled")}”`, "title-link")}.`
+    : "It never got worse!";
+  return `<div class="shark-banner calm">
+    <div class="shark-big" aria-hidden="true">🏄</div>
+    <div><strong>No shark jumping detected</strong> — never a drop of ${settings.drop.toFixed(1)} or more.
+    Consistently good (or consistently bad)!<br>${where}</div>
+  </div>`;
+}
+
+function capitalize(text) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function renderTops(rated) {
+  const top = rated.slice(0, 5);
+  const bottom = [...rated]
+    .sort((a, b) => a.rating - b.rating || (b.votes || 0) - (a.votes || 0))
+    .slice(0, 5);
+  const list = eps => eps.map(e =>
+    `<li>${ratingBadge(e.rating)} <span class="code">${episodeCode(e)}</span> ` +
+    `${episodeLink(e, escapeHtml(e.title || "Untitled"), "title-link")}</li>`).join("");
+  return `<div class="tops">
+    <section><h3><span class="emoji">⭐</span> Top 5 episodes</h3><ol>${list(top)}</ol></section>
+    <section><h3><span class="emoji">👎</span> Bottom 5 episodes</h3><ol>${list(bottom)}</ol></section>
+  </div>`;
 }
 
 function renderOther(other) {
@@ -455,13 +717,12 @@ card.setAttribute("role", "tooltip");
 card.hidden = true;
 document.body.appendChild(card);
 
-function cardHtml(e, ratedCount) {
-  const code = e.season != null && e.episode != null ? `S${e.season}E${e.episode}` : "Episode";
-  const lines = [`<div class="card-code">${code}</div>`,
+function cardHtml(e) {
+  const lines = [`<div class="card-code">${episodeCode(e)}</div>`,
                  `<div class="card-title">${escapeHtml(e.title || "Untitled")}</div>`];
   if (e.rating != null) {
     lines.push(`<div class="card-rating">${ratingBadge(e.rating)} ${(e.votes || 0).toLocaleString()} votes</div>`);
-    lines.push(`<div>Rank: #${e.rank} of ${ratedCount}${e.tied ? " (tied)" : ""}</div>`);
+    lines.push(`<div>Rank: #${e.rank} of ${state.rated.length}${e.tied ? " (tied)" : ""}</div>`);
   } else {
     lines.push("<div>Not rated yet</div>");
   }
@@ -469,15 +730,21 @@ function cardHtml(e, ratedCount) {
   if (e.year) facts.push(`Aired ${e.year}`);
   if (e.runtime) facts.push(`${e.runtime} min`);
   if (facts.length) lines.push(`<div>${facts.join(" · ")}</div>`);
+  if (e.pastAvg != null) {
+    const { past, future } = state.settings;
+    const d = e.pastAvg - e.nextAvg;
+    lines.push(`<div class="card-avgs">Past ${past}: ${e.pastAvg.toFixed(2)} · Next ${future}: ` +
+               `${e.nextAvg.toFixed(2)} (${d >= 0 ? "−" : "+"}${Math.abs(d).toFixed(2)})</div>`);
+  }
+  if (e === state.shark) lines.push('<div class="card-shark"><span class="emoji">🦈</span> Jumped the shark here!</div>');
   lines.push('<div class="card-hint">Click to open on IMDb</div>');
   return lines.join("");
 }
 
 function showCard(link) {
-  const e = episodesById.get(Number(link.dataset.episode));
+  const e = state?.byId.get(Number(link.dataset.episode));
   if (!e) return;
-  const ratedCount = [...episodesById.values()].filter(x => x.rating != null).length;
-  card.innerHTML = cardHtml(e, ratedCount);
+  card.innerHTML = cardHtml(e);
   card.hidden = false;
 
   // Place above the cell if there's room, otherwise below; keep it on screen sideways.
@@ -493,23 +760,25 @@ function showCard(link) {
 
 function hideCard() { card.hidden = true; }
 
-showBody.addEventListener("mouseover", ev => {
+showContent.addEventListener("mouseover", ev => {
   const link = ev.target.closest("a[data-episode]");
   if (link) showCard(link);
 });
-showBody.addEventListener("mouseout", ev => {
+showContent.addEventListener("mouseout", ev => {
   if (ev.target.closest("a[data-episode]") && !ev.relatedTarget?.closest?.("a[data-episode]")) hideCard();
 });
-showBody.addEventListener("focusin", ev => {
+showContent.addEventListener("focusin", ev => {
   const link = ev.target.closest("a[data-episode]");
   if (link) showCard(link);
 });
-showBody.addEventListener("focusout", hideCard);
+showContent.addEventListener("focusout", hideCard);
 window.addEventListener("scroll", hideCard, true);
 
 // =====================================================================
 // Start
 // =====================================================================
+
+loadConfig().then(setupPanel);
 
 loadShows()
   .then(() => {
