@@ -1,0 +1,105 @@
+:root {
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --text: #1d1d1f;
+  --muted: #6b6b70;
+  --border: #d9d9dc;
+  --accent: #2f6fde;
+  --active: #e8effc;
+  --error: #b42318;
+  --radius: 10px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.4;
+}
+
+main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 32px 16px 48px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+/* ---------- header ---------- */
+
+.page-header h1 { margin: 0; font-size: 1.8rem; }
+.tagline { margin: 4px 0 24px; color: var(--muted); }
+
+/* ---------- search ---------- */
+
+.search { max-width: 560px; }
+
+.combobox { position: relative; }
+
+#search-input {
+  width: 100%;
+  padding: 12px 14px;
+  font-size: 1.05rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+}
+#search-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.suggestions {
+  position: absolute;
+  z-index: 10;
+  left: 0; right: 0;
+  margin: 4px 0 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.suggestions li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.suggestions li[aria-selected="true"] { background: var(--active); }
+.suggestions li.empty { color: var(--muted); cursor: default; }
+
+.s-title mark { background: none; color: inherit; font-weight: 700; }
+.s-years { color: var(--muted); }
+.s-tag {
+  font-size: 0.72rem;
+  padding: 1px 6px;
+  margin-left: 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  vertical-align: 1px;
+}
+.s-meta { flex-shrink: 0; font-size: 0.85rem; color: var(--muted); white-space: nowrap; }
+
+.search-message { margin: 8px 0 0; color: var(--error); }
+
+/* ---------- selected show ---------- */
+
+.show { margin-top: 32px; }
+.show h2 { margin: 0; font-size: 1.5rem; }
+.show-info { margin: 4px 0 16px; color: var(--muted); }
+.show-info a { color: var(--accent); }

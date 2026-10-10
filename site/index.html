@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TV Episode Ratings</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main>
+    <header class="page-header">
+      <h1>TV Episode Ratings</h1>
+      <p class="tagline">Every episode's IMDb rating, at a glance.</p>
+    </header>
+
+    <form class="search" id="search-form" autocomplete="off" role="search">
+      <label for="search-input" class="visually-hidden">TV show</label>
+      <div class="combobox">
+        <input id="search-input" type="text" disabled
+               placeholder="Loading shows…"
+               role="combobox" aria-autocomplete="list" aria-expanded="false"
+               aria-controls="search-list">
+        <ul id="search-list" class="suggestions" role="listbox" hidden></ul>
+      </div>
+      <p id="search-message" class="search-message" role="alert" hidden></p>
+    </form>
+
+    <section id="show" class="show" hidden>
+      <h2 id="show-title"></h2>
+      <p id="show-info" class="show-info"></p>
+      <div id="show-body"></div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
