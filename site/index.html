@@ -70,6 +70,22 @@
     </section>
   </main>
 
+  <footer class="page-footer">
+    <p>
+      <span id="data-date">IMDb data</span> ·
+      <a id="refresh-link" href="#" target="_blank" rel="noopener"
+         title="Opens GitHub, where the site owner can click “Run workflow”">Refresh data</a>
+    </p>
+    <p>Ratings from <a href="https://developer.imdb.com/non-commercial-datasets/" target="_blank"
+       rel="noopener">IMDb's public datasets</a>, for personal, non-commercial use.</p>
+  </footer>
+
+  <div id="refresh-popup" class="popup" role="status" aria-live="polite" hidden>
+    <div id="refresh-icon" class="popup-icon emoji" aria-hidden="true"></div>
+    <div id="refresh-text" class="popup-text"></div>
+    <button type="button" id="refresh-close" class="popup-close" aria-label="Close">×</button>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>

@@ -33,8 +33,25 @@ function stripArticle(norm) {
   return norm.replace(/^(the|a|an) /, "");
 }
 
+// The build time from meta.json, added to data URLs so browsers fetch new files after a refresh
+// instead of reusing old copies they saved.
+let dataVersion = "";
+
+async function loadMeta() {
+  try {
+    const resp = await fetch("data/meta.json", { cache: "no-cache" });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const meta = await resp.json();
+    dataVersion = encodeURIComponent(meta.builtAt || "");
+    return meta;
+  } catch (err) {
+    console.warn("meta.json not loaded:", err);
+    return null;
+  }
+}
+
 async function loadShows() {
-  const resp = await fetch("data/shows.json");
+  const resp = await fetch(`data/shows.json?v=${dataVersion}`);
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   const rows = await resp.json();
   shows = rows.map(([id, title, start, end, votes, rating, mini, episodes]) => {
@@ -239,7 +256,7 @@ const episodeFiles = new Map();
 async function loadEpisodes(showId) {
   const shard = String(showId % 1000).padStart(3, "0");
   if (!episodeFiles.has(shard)) {
-    const promise = fetch(`data/episodes/${shard}.json`).then(resp => {
+    const promise = fetch(`data/episodes/${shard}.json?v=${dataVersion}`).then(resp => {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       return resp.json();
     });
@@ -310,6 +327,7 @@ const DEFAULT_CONFIG = {
   shark: { pastEpisodes: 10, futureEpisodes: 10, minDrop: 1.0 },
   minEpisodesForStats: 30,
   showSharkSettingsPanel: true,
+  githubRepo: "kroskopf-ccc/imdb-ratings",
 };
 let config = DEFAULT_CONFIG;
 
@@ -775,12 +793,170 @@ showContent.addEventListener("focusout", hideCard);
 window.addEventListener("scroll", hideCard, true);
 
 // =====================================================================
+// Footer: data date and "Refresh data"
+// =====================================================================
+
+function renderFooter(meta) {
+  const el = document.getElementById("data-date");
+  if (!meta?.imdbDataDate) { el.textContent = "IMDb data date unknown"; return; }
+  // "2026-10-10" -> "October 10, 2026" (as a calendar date, not shifted by time zone)
+  const date = new Date(meta.imdbDataDate + "T00:00:00Z").toLocaleDateString("en-US",
+    { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
+  el.textContent = `IMDb data from ${date}`;
+}
+
+// =====================================================================
+// "Update in progress" popup
+//
+// A refresh is the "Publish site" GitHub Action, started on GitHub by the site owner (or by
+// the weekly schedule). Anyone can *read* its status from GitHub's public API without signing
+// in, which is what this does. That API allows 60 checks per hour per visitor, so we check on
+// page load, when the tab comes back into view, and every 90 seconds only while a refresh runs.
+// =====================================================================
+
+const WORKFLOW = "publish.yml";
+const RUNNING = ["queued", "in_progress", "waiting", "requested", "pending"];
+const POLL_MS = 90_000;
+
+const popup = document.getElementById("refresh-popup");
+const popupIcon = document.getElementById("refresh-icon");
+const popupText = document.getElementById("refresh-text");
+
+let watchedRun = null;     // the refresh run we've seen in progress
+let dismissedRun = null;   // a run whose "in progress" popup the user closed
+let lastCheck = 0;
+let pollTimer = null;
+let tickTimer = null;
+let expectRun = 0;         // after clicking "Refresh data": quick re-checks while GitHub starts it
+
+function apiBase() {
+  return `https://api.github.com/repos/${config.githubRepo}/actions`;
+}
+
+function setupRefresh() {
+  const link = document.getElementById("refresh-link");
+  link.href = `https://github.com/${config.githubRepo}/actions/workflows/${WORKFLOW}`;
+  link.addEventListener("click", () => { expectRun = 4; });
+
+  document.getElementById("refresh-close").addEventListener("click", () => {
+    if (watchedRun && popup.dataset.kind === "running") dismissedRun = watchedRun.id;
+    hidePopup();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && Date.now() - lastCheck > 15_000) checkRefresh();
+  });
+  checkRefresh();
+}
+
+function schedule(ms) {
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(() => {
+    if (document.visibilityState === "visible") checkRefresh();
+    // (if hidden, the visibilitychange handler checks when the tab is viewed again)
+  }, ms);
+}
+
+async function fetchJson(url) {
+  // The unique "t" value skips GitHub's up-to-a-minute-old cached answers.
+  url += (url.includes("?") ? "&" : "?") + `t=${Date.now()}`;
+  const resp = await fetch(url, { headers: { Accept: "application/vnd.github+json" }, cache: "no-store" });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp.json();
+}
+
+async function checkRefresh() {
+  lastCheck = Date.now();
+  let runs;
+  try {
+    runs = (await fetchJson(`${apiBase()}/workflows/${WORKFLOW}/runs?per_page=5`)).workflow_runs;
+  } catch (err) {
+    console.warn("Couldn't check refresh status:", err);   // e.g. hourly limit reached; just stop
+    return;
+  }
+
+  // Only scheduled or hand-started runs download new data; code-change publishes don't.
+  const active = runs.find(r => RUNNING.includes(r.status) &&
+                                (r.event === "schedule" || r.event === "workflow_dispatch"));
+  if (active) {
+    watchedRun = active;
+    expectRun = 0;
+    if (dismissedRun !== active.id) showRunning(active);
+    schedule(POLL_MS);
+    return;
+  }
+
+  if (watchedRun) {
+    // The run we were watching is no longer running: did it succeed?
+    let done = runs.find(r => r.id === watchedRun.id);
+    if (!done) {
+      try { done = await fetchJson(`${apiBase()}/runs/${watchedRun.id}`); } catch { done = null; }
+    }
+    watchedRun = null;
+    if (done?.status === "completed") {
+      if (done.conclusion === "success") showReady();
+      else showFailed(done);
+    }
+    return;
+  }
+
+  // Just clicked "Refresh data" but GitHub hasn't started the run yet: look again shortly.
+  if (expectRun > 0) {
+    expectRun--;
+    schedule(20_000);
+  }
+}
+
+function minutesAgo(iso) {
+  const min = Math.floor((Date.now() - new Date(iso)) / 60_000);
+  return min < 1 ? "just now" : min === 1 ? "1 minute ago" : `${min} minutes ago`;
+}
+
+function showPopup(kind, icon, html) {
+  popup.dataset.kind = kind;
+  popupIcon.textContent = icon;
+  popupText.innerHTML = html;
+  popup.hidden = false;
+}
+
+function hidePopup() {
+  popup.hidden = true;
+  clearInterval(tickTimer);
+}
+
+function showRunning(run) {
+  const draw = () => showPopup("running", "⏳",
+    `<strong>IMDb data update in progress</strong><br>` +
+    `Started ${minutesAgo(run.run_started_at || run.created_at)}; it usually takes 2–3 minutes. ` +
+    `The current data still works.`);
+  draw();
+  clearInterval(tickTimer);
+  tickTimer = setInterval(draw, 30_000);   // keep "started N minutes ago" current
+}
+
+function showReady() {
+  clearInterval(tickTimer);
+  showPopup("ready", "✅",
+    '<strong>New IMDb data is ready.</strong><br>' +
+    '<button type="button" class="popup-action" id="refresh-reload">Reload the page</button>');
+  document.getElementById("refresh-reload").addEventListener("click", () => location.reload());
+}
+
+function showFailed(run) {
+  clearInterval(tickTimer);
+  showPopup("failed", "⚠️",
+    "<strong>The data update didn't finish.</strong><br>The current data still works. " +
+    `<a href="${escapeHtml(run.html_url)}" target="_blank" rel="noopener">Details on GitHub</a>`);
+}
+
+// =====================================================================
 // Start
 // =====================================================================
 
-loadConfig().then(setupPanel);
+const metaReady = loadMeta();
+metaReady.then(renderFooter);
+loadConfig().then(() => { setupPanel(); setupRefresh(); });
 
-loadShows()
+metaReady.then(loadShows)
   .then(() => {
     input.disabled = false;
     input.placeholder = "Search for a TV show…";

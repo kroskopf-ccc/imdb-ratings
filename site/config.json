@@ -5,5 +5,6 @@
     "minDrop": 1.0
   },
   "minEpisodesForStats": 30,
-  "showSharkSettingsPanel": true
+  "showSharkSettingsPanel": true,
+  "githubRepo": "kroskopf-ccc/imdb-ratings"
 }
