@@ -2,7 +2,7 @@
   "shark": {
     "pastEpisodes": 10,
     "futureEpisodes": 10,
-    "minDrop": 1.0
+    "minDrop": 0.6
   },
   "minEpisodesForStats": 30,
   "showSharkSettingsPanel": true,
