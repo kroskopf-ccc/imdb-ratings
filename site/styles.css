@@ -388,7 +388,7 @@ main {
 .hover-card {
   position: fixed;
   z-index: 20;
-  max-width: 300px;
+  max-width: 320px;
   padding: 10px 12px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -404,6 +404,13 @@ main {
 .card-title { font-weight: 700; font-size: 0.95rem; }
 .card-hint { color: var(--muted); font-size: 0.75rem; margin-top: 4px; }
 .card-avgs { color: var(--muted); font-size: 0.8rem; }
+.card-summary {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  font-style: italic;
+  color: #45454a;
+}
 .card-shark { font-weight: 700; color: #2f6fde; }
 .emoji {
   font-weight: 400;   /* Windows draws bold emoji as gray outlines */

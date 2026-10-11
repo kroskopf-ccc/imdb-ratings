@@ -559,6 +559,7 @@ async function showSelected(show) {
   setStatus("");
   showContent.hidden = false;
   render();
+  addTvmazeDetails(show);   // fills in air dates & summaries a moment later
 }
 
 /** Draw everything that depends on the settings. Called on load and whenever a setting changes. */
@@ -726,6 +727,78 @@ function renderOther(other) {
 }
 
 // =====================================================================
+// TVmaze: full air dates and short summaries for the hover card
+//
+// IMDb's files only have the year an episode aired. TVmaze (free, no key) looks the show up by
+// its IMDb ID and returns every episode's air date and summary, matched here by season and
+// episode number. If TVmaze doesn't know the show, the card just shows the year.
+// =====================================================================
+
+const tvmazeShows = new Map();   // show id -> promise of { url, episodes: Map("S-E" -> info) } or null
+
+function loadTvmaze(showId) {
+  if (!tvmazeShows.has(showId)) {
+    const promise = (async () => {
+      const lookup = await fetch(`https://api.tvmaze.com/lookup/shows?imdb=${imdbId(showId)}`);
+      if (lookup.status === 404) return null;               // TVmaze doesn't have this show
+      if (!lookup.ok) throw new Error(`HTTP ${lookup.status}`);
+      const tvShow = await lookup.json();
+      const resp = await fetch(`https://api.tvmaze.com/shows/${tvShow.id}/episodes?specials=1`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const episodes = new Map();
+      for (const ep of await resp.json()) {
+        if (ep.season == null || ep.number == null) continue;   // unnumbered specials
+        episodes.set(`${ep.season}-${ep.number}`, {
+          airdate: ep.airdate || null,
+          summary: htmlToText(ep.summary),
+        });
+      }
+      return { url: tvShow.url, episodes };
+    })();
+    tvmazeShows.set(showId, promise);
+    promise.catch(() => tvmazeShows.delete(showId));   // allow a retry after a failure
+  }
+  return tvmazeShows.get(showId);
+}
+
+/** TVmaze summaries are HTML ("<p>Walt <b>…</b></p>"); keep only the text. */
+function htmlToText(html) {
+  if (!html) return null;
+  // DOMParser builds an inert document: nothing in it runs or loads.
+  const text = new DOMParser().parseFromString(html, "text/html").body.textContent;
+  return text.replace(/\s+/g, " ").trim() || null;
+}
+
+/** Add TVmaze air dates and summaries to the show on screen, when they arrive. */
+async function addTvmazeDetails(show) {
+  let tv;
+  try {
+    tv = await loadTvmaze(show.id);
+  } catch (err) {
+    console.warn("TVmaze details not loaded:", err);
+    return;
+  }
+  if (!tv || state?.show.id !== show.id) return;
+  for (const e of state.episodes) {
+    const info = e.season != null && e.episode != null && tv.episodes.get(`${e.season}-${e.episode}`);
+    if (info) { e.airdate = info.airdate; e.summary = info.summary; }
+  }
+  if (!card.hidden && cardLink?.isConnected) showCard(cardLink);   // update an open card
+}
+
+function formatDate(isoDate) {
+  return new Date(isoDate + "T00:00:00Z").toLocaleDateString("en-US",
+    { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
+}
+
+/** Shorten long summaries at a word boundary. */
+function truncate(text, max) {
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
+  return cut.slice(0, cut.lastIndexOf(" ")).replace(/[,;:.\s]+$/, "") + "…";
+}
+
+// =====================================================================
 // Hover card
 // =====================================================================
 
@@ -745,9 +818,11 @@ function cardHtml(e) {
     lines.push("<div>Not rated yet</div>");
   }
   const facts = [];
-  if (e.year) facts.push(`Aired ${e.year}`);
+  if (e.airdate) facts.push(`Aired ${formatDate(e.airdate)}`);
+  else if (e.year) facts.push(`Aired ${e.year}`);
   if (e.runtime) facts.push(`${e.runtime} min`);
   if (facts.length) lines.push(`<div>${facts.join(" · ")}</div>`);
+  if (e.summary) lines.push(`<div class="card-summary">${escapeHtml(truncate(e.summary, 240))}</div>`);
   if (e.pastAvg != null) {
     const { past, future } = state.settings;
     const d = e.pastAvg - e.nextAvg;
@@ -759,9 +834,12 @@ function cardHtml(e) {
   return lines.join("");
 }
 
+let cardLink = null;   // the cell or title the card is showing details for
+
 function showCard(link) {
   const e = state?.byId.get(Number(link.dataset.episode));
   if (!e) return;
+  cardLink = link;
   card.innerHTML = cardHtml(e);
   card.hidden = false;
 
