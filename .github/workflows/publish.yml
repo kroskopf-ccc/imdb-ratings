@@ -1,0 +1,77 @@
+# Builds the site's data from IMDb's files and publishes the site to GitHub Pages.
+#
+# - Every Monday (and when started by hand from the Actions tab): downloads fresh IMDb data.
+# - When code or config.json changes: reuses the last built data (from GitHub's cache), so
+#   publishing takes about a minute. If no cached data exists, it builds fresh data instead.
+name: Publish site
+
+on:
+  schedule:
+    - cron: "0 9 * * 1"          # Mondays 09:00 UTC (IMDb updates its files daily)
+  workflow_dispatch:              # "Run workflow" button
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "build/**"
+      - ".github/workflows/publish.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never run two publishes at once; a newer one waits for the current one to finish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Reuse last built data (code/config changes only)
+        id: restore
+        if: github.event_name == 'push'
+        uses: actions/cache/restore@v4
+        with:
+          path: site/data
+          key: imdb-data-none                   # never an exact match...
+          restore-keys: imdb-data-               # ...so take the most recent build
+
+      - name: Build fresh data from IMDb
+        id: build
+        if: steps.restore.outputs.cache-matched-key == ''
+        run: python build/build_data.py --fresh
+
+      - name: Save data for future publishes
+        if: steps.build.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: site/data
+          key: imdb-data-${{ github.run_id }}
+
+      - name: Show data summary
+        run: |
+          cat site/data/meta.json; echo
+          du -sh site/data
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
