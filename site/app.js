@@ -411,18 +411,18 @@ const panelInputs = {
 
 function fillPanel() {
   const s = currentSettings();
-  for (const [key, el] of Object.entries(panelInputs)) el.value = s[key];
+  for (const [key, el] of Object.entries(panelInputs)) {
+    el.value = key === "drop" ? s.drop.toFixed(1) : s[key];   // "1.0", not "1"
+  }
   const d = defaultSettings();
   document.getElementById("panel-defaults").textContent =
     `Defaults (from config.json): ${d.past} past · ${d.future} future · ${d.drop.toFixed(1)} drop · ${d.minEpisodes} episodes.`;
 }
 
 function setupPanel() {
-  const panel = document.getElementById("shark-panel");
-  panel.hidden = !config.showSharkSettingsPanel;
-  if (panel.hidden) return;
-  panel.open = storageGet("sharkPanelOpen") ?? true;
-  panel.addEventListener("toggle", () => storageSet("sharkPanelOpen", panel.open));
+  const settingsArea = document.getElementById("shark-settings");
+  settingsArea.hidden = !config.showSharkSettingsPanel;
+  if (settingsArea.hidden) return;
   fillPanel();
 
   for (const el of Object.values(panelInputs)) {
@@ -585,6 +585,7 @@ async function showSelected(show) {
     grid: layoutGrid(episodes),
     // rated, numbered episodes in airing order (the episode files are already sorted that way)
     sequence: episodes.filter(e => e.season != null && e.episode != null && e.rating != null),
+    justChosen: true,   // the shark box opens or closes to fit the verdict on first render
   };
   renderShowInfo(show, episodes.length, rated.length);
   setStatus("");
@@ -614,7 +615,7 @@ function render() {
 
   document.getElementById("legend").innerHTML = renderLegend();
   document.getElementById("show-grid").innerHTML = renderGrid(state.grid, state.rated.length, state.shark);
-  document.getElementById("show-shark").innerHTML = renderShark(result, settings, enough);
+  renderSharkBox(result, settings, enough);
   document.getElementById("show-tops").innerHTML = enough ? renderTops(state.rated) : "";
   document.getElementById("show-other").innerHTML = renderOther(state.grid.other);
 }
@@ -690,40 +691,69 @@ function windowWords({ past, future }) {
   return { before, after };
 }
 
-function renderShark({ shark, biggest }, settings, enough) {
+/**
+ * The shark box: its always-visible summary line is the verdict; opening it shows the details
+ * and the settings. It opens by itself when a newly chosen show jumped the shark; after that it
+ * stays however the user leaves it, even while settings change.
+ */
+function renderSharkBox(result, settings, enough) {
+  const { kind, icon, headline, detail } = sharkVerdict(result, settings, enough);
+  const box = document.getElementById("shark-box");
+  box.className = `shark-box ${kind}`;
+  document.getElementById("shark-summary").innerHTML =
+    `<span class="shark-icon-big emoji" aria-hidden="true">${icon}</span>` +
+    `<span class="shark-headline">${headline}</span>` +
+    `<span class="shark-more">details${config.showSharkSettingsPanel ? " &amp; settings" : ""}</span>`;
+  document.getElementById("shark-detail").innerHTML = detail;
+  if (state.justChosen) {
+    box.open = kind === "jumped";
+    state.justChosen = false;
+  }
+}
+
+function sharkVerdict({ shark, biggest }, settings, enough) {
   if (!enough) {
-    return `<p class="note stats-note">Top 5 / Bottom 5 and shark detection need at least ` +
-           `${plural(settings.minEpisodes, "rated episode")} with season and episode numbers; ` +
-           `this show has ${state.sequence.length}.</p>`;
+    return {
+      kind: "none", icon: "🦈",
+      headline: "Too few episodes to check for a shark jump",
+      detail: `Top 5 / Bottom 5 and shark detection need at least ` +
+              `${plural(settings.minEpisodes, "rated episode")} with season and episode numbers; ` +
+              `this show has ${state.sequence.length}.`,
+    };
   }
   if (!biggest) {
-    return `<div class="shark-banner calm">Not enough episodes to compare ` +
-           `${settings.past} before and ${settings.future} after any episode.</div>`;
+    return {
+      kind: "none", icon: "🦈",
+      headline: "Too few episodes to check for a shark jump",
+      detail: `With these settings, an episode needs ${plural(settings.past, "episode")} before it and ` +
+              `${settings.future - 1} after it to be checked, and this show is too short for that.`,
+    };
   }
   const w = windowWords(settings);
   if (shark) {
     const title = escapeHtml(shark.title || "Untitled");
-    return `<div class="shark-banner jumped">
-      <div class="shark-big" aria-hidden="true">🦈</div>
-      <div>
-        <strong>This show jumped the shark at ${episodeCode(shark)}: ` +
-        `${episodeLink(shark, `“${title}”`, "title-link")}</strong>${shark.year ? ` (${shark.year})` : ""}<br>
-        ${capitalize(w.before)} averaged <b>${shark.pastAvg.toFixed(2)}</b>; ` +
-        `${w.after} averaged <b>${shark.nextAvg.toFixed(2)}</b> — ` +
-        `a drop of <b>${(shark.pastAvg - shark.nextAvg).toFixed(2)}</b> points.
-      </div>
-    </div>`;
+    return {
+      kind: "jumped", icon: "🦈",
+      // (No link in the headline: clicking the summary line opens and closes the box.)
+      headline: `<strong>Jumped the shark at ${episodeCode(shark)}: “${title}”</strong>` +
+                (shark.year ? ` (${shark.year})` : ""),
+      detail: `${capitalize(w.before)} averaged <b>${shark.pastAvg.toFixed(2)}</b>; ` +
+              `${w.after} averaged <b>${shark.nextAvg.toFixed(2)}</b> — ` +
+              `a drop of <b>${(shark.pastAvg - shark.nextAvg).toFixed(2)}</b> points. ` +
+              episodeLink(shark, "See the episode on IMDb ↗", "title-link"),
+    };
   }
   const b = biggest.episode;
-  const where = biggest.drop > 0
-    ? `The biggest drop was ${biggest.drop.toFixed(2)} points, at ` +
-      `${episodeLink(b, `${episodeCode(b)} “${escapeHtml(b.title || "Untitled")}”`, "title-link")}.`
-    : "It never got worse!";
-  return `<div class="shark-banner calm">
-    <div class="shark-big" aria-hidden="true">🏄</div>
-    <div><strong>No shark jumping detected</strong> — never a drop of ${settings.drop.toFixed(1)} or more.
-    Consistently good (or consistently bad)!<br>${where}</div>
-  </div>`;
+  return {
+    kind: "calm", icon: "🏄",
+    headline: "<strong>No shark jumping detected</strong>",
+    detail: `Never a drop of ${settings.drop.toFixed(1)} or more — consistently good ` +
+            `(or consistently bad)! ` +
+            (biggest.drop > 0
+              ? `The biggest drop was ${biggest.drop.toFixed(2)} points, at ` +
+                `${episodeLink(b, `${episodeCode(b)} “${escapeHtml(b.title || "Untitled")}”`, "title-link")}.`
+              : "It never got worse."),
+  };
 }
 
 function capitalize(text) {
@@ -854,12 +884,6 @@ function cardHtml(e) {
   if (e.runtime) facts.push(`${e.runtime} min`);
   if (facts.length) lines.push(`<div>${facts.join(" · ")}</div>`);
   if (e.summary) lines.push(`<div class="card-summary">${escapeHtml(truncate(e.summary, 240))}</div>`);
-  if (e.pastAvg != null) {
-    const { past, future } = state.settings;
-    const d = e.pastAvg - e.nextAvg;
-    lines.push(`<div class="card-avgs">Past ${past}: ${e.pastAvg.toFixed(2)} · Next ${future}: ` +
-               `${e.nextAvg.toFixed(2)} (${d >= 0 ? "−" : "+"}${Math.abs(d).toFixed(2)})</div>`);
-  }
   if (e === state.shark) lines.push('<div class="card-shark"><span class="emoji">🦈</span> Jumped the shark here!</div>');
   lines.push('<div class="card-hint">Click to open on IMDb</div>');
   return lines.join("");

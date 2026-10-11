@@ -257,33 +257,45 @@ main {
 }
 .badge.unrated { background: #e4e4e7; color: #8a8a90; }
 
-/* ---------- shark banner ---------- */
+/* ---------- shark box: verdict + details + settings ---------- */
 
-.shark-banner {
+.shark-box {
+  margin-top: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.shark-box.jumped { border-color: #5b8def; background: #eef3fd; }
+
+.shark-box summary {
   display: flex;
   align-items: center;
-  gap: 14px;
-  margin-top: 20px;
-  padding: 12px 16px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: var(--surface);
-}
-.shark-banner.jumped { border-color: #5b8def; background: #eef3fd; }
-.shark-big { font-size: 2.2rem; line-height: 1; }
-.stats-note { margin-top: 20px; }
-
-/* ---------- shark settings panel ---------- */
-
-.panel {
-  margin-top: 12px;
+  gap: 12px;
   padding: 10px 16px;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
+  cursor: pointer;
+  list-style: none;          /* we draw our own open/closed arrow */
+}
+.shark-box summary::-webkit-details-marker { display: none; }
+.shark-box summary::after {
+  content: "▸";
+  color: var(--muted);
+  transition: transform 0.15s;
+}
+.shark-box[open] summary::after { transform: rotate(90deg); }
+.shark-box summary:focus-visible { outline: 2px solid var(--accent); border-radius: var(--radius); }
+
+.shark-icon-big { font-size: 1.8rem; line-height: 1; }
+.shark-headline { flex: 1; }
+.shark-more { font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
+
+.shark-detail { padding: 0 16px 12px; }
+.shark-settings {
+  margin: 0 16px 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
   font-size: 0.9rem;
 }
-.panel summary { cursor: pointer; font-weight: 600; }
+.shark-settings h4 { margin: 0; font-size: 0.9rem; }
 .panel-fields {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -424,7 +436,6 @@ main {
 .card-code { color: var(--muted); font-size: 0.75rem; font-weight: 600; }
 .card-title { font-weight: 700; font-size: 0.95rem; }
 .card-hint { color: var(--muted); font-size: 0.75rem; margin-top: 4px; }
-.card-avgs { color: var(--muted); font-size: 0.8rem; }
 .card-summary {
   margin-top: 4px;
   padding-top: 6px;

@@ -41,29 +41,34 @@
           </label>
         </div>
         <div id="show-grid"></div>
-        <div id="show-shark"></div>
 
-        <details id="shark-panel" class="panel" hidden>
-          <summary><span class="emoji">🦈</span> Shark settings</summary>
-          <div class="panel-fields">
-            <label>Past episodes to average
-              <input type="number" id="set-past" min="1" max="100" step="1" required>
-            </label>
-            <label>Future episodes to average <small>(including the episode itself)</small>
-              <input type="number" id="set-future" min="1" max="100" step="1" required>
-            </label>
-            <label>Rating drop that counts as a shark jump
-              <input type="number" id="set-drop" min="0.1" max="10" step="0.1" required>
-            </label>
-            <label>Episodes needed for Top 5 / Bottom 5 and shark detection
-              <input type="number" id="set-min" min="1" max="1000" step="1" required>
-            </label>
+        <!-- Shark verdict (the summary line) with details and settings inside.
+             Opens automatically when a newly chosen show jumped the shark. -->
+        <details id="shark-box" class="shark-box">
+          <summary id="shark-summary"></summary>
+          <div id="shark-detail" class="shark-detail"></div>
+          <div id="shark-settings" class="shark-settings" hidden>
+            <h4>Shark settings</h4>
+            <div class="panel-fields">
+              <label>Past episodes to average
+                <input type="number" id="set-past" min="1" max="100" step="1" required>
+              </label>
+              <label>Future episodes to average <small>(including the episode itself)</small>
+                <input type="number" id="set-future" min="1" max="100" step="1" required>
+              </label>
+              <label>Rating drop that counts as a shark jump
+                <input type="number" id="set-drop" min="0.1" max="10" step="0.1" required>
+              </label>
+              <label>Episodes needed for Top 5 / Bottom 5 and shark detection
+                <input type="number" id="set-min" min="1" max="1000" step="1" required>
+              </label>
+            </div>
+            <p class="panel-note">
+              Changes apply instantly and are remembered in this browser.
+              <span id="panel-defaults"></span>
+              <button type="button" id="set-reset">Reset to defaults</button>
+            </p>
           </div>
-          <p class="panel-note">
-            Changes apply instantly and are remembered in this browser.
-            <span id="panel-defaults"></span>
-            <button type="button" id="set-reset">Reset to defaults</button>
-          </p>
         </details>
 
         <div id="show-tops"></div>
