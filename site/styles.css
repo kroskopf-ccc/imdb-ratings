@@ -157,7 +157,7 @@ main {
   color: var(--muted);
 }
 .legend-bar { width: 180px; height: 10px; border-radius: 999px; }
-.legend-unrated { margin-left: 16px; }
+.legend-unrated { margin-left: 16px; white-space: nowrap; }
 .show-info + .loading, .show-info + .error { margin-top: 0; }
 
 /* ---------- grid ---------- */
@@ -287,6 +287,9 @@ main {
 .shark-icon-big { font-size: 1.8rem; line-height: 1; }
 .shark-headline { flex: 1; }
 .shark-more { font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
+@media (max-width: 560px) {
+  .shark-more { display: none; }   /* phones: the ▸ arrow is enough; give the verdict the room */
+}
 
 .shark-detail { padding: 0 16px 12px; }
 .shark-settings {
@@ -444,6 +447,34 @@ main {
   color: #45454a;
 }
 .card-shark { font-weight: 700; color: #2f6fde; }
+
+/* Card opened by a tap: it can be touched, and has a close button and an IMDb link */
+.hover-card.pinned { pointer-events: auto; padding-right: 40px; }
+.card-close {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 36px;               /* big enough for a fingertip */
+  height: 36px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.card-close:active { background: var(--active); }
+.card-hint.card-link {
+  display: inline-block;
+  padding: 6px 0 2px;        /* a little extra room to tap */
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent);
+}
 .emoji {
   font-weight: 400;   /* Windows draws bold emoji as gray outlines */
   font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;

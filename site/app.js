@@ -844,7 +844,7 @@ async function addTvmazeDetails(show) {
     const info = e.season != null && e.episode != null && tv.episodes.get(`${e.season}-${e.episode}`);
     if (info) { e.airdate = info.airdate; e.summary = info.summary; }
   }
-  if (!card.hidden && cardLink?.isConnected) showCard(cardLink);   // update an open card
+  if (!card.hidden && cardLink?.isConnected) showCard(cardLink, cardPinned);   // update an open card
 }
 
 function formatDate(isoDate) {
@@ -860,7 +860,12 @@ function truncate(text, max) {
 }
 
 // =====================================================================
-// Hover card
+// Episode details card
+//
+// Mouse: hovering a cell shows the card; clicking the cell opens IMDb.
+// Touch (phones, tablets): tapping a cell opens the card and stays on the page. The card then
+// has a close button (×) and its "Click to open on IMDb" line is the link. Tapping another cell
+// switches cards; tapping anywhere else closes it.
 // =====================================================================
 
 const card = document.createElement("div");
@@ -869,9 +874,13 @@ card.setAttribute("role", "tooltip");
 card.hidden = true;
 document.body.appendChild(card);
 
-function cardHtml(e) {
-  const lines = [`<div class="card-code">${episodeCode(e)}</div>`,
-                 `<div class="card-title">${escapeHtml(e.title || "Untitled")}</div>`];
+function cardHtml(e, pinned) {
+  const lines = [];
+  if (pinned) {
+    lines.push('<button type="button" class="card-close" aria-label="Close">×</button>');
+  }
+  lines.push(`<div class="card-code">${episodeCode(e)}</div>`,
+             `<div class="card-title">${escapeHtml(e.title || "Untitled")}</div>`);
   if (e.rating != null) {
     lines.push(`<div class="card-rating">${ratingBadge(e.rating)} ${(e.votes || 0).toLocaleString()} votes</div>`);
     lines.push(`<div>Rank: #${e.rank} of ${state.rated.length}${e.tied ? " (tied)" : ""}</div>`);
@@ -885,21 +894,37 @@ function cardHtml(e) {
   if (facts.length) lines.push(`<div>${facts.join(" · ")}</div>`);
   if (e.summary) lines.push(`<div class="card-summary">${escapeHtml(truncate(e.summary, 240))}</div>`);
   if (e === state.shark) lines.push('<div class="card-shark"><span class="emoji">🦈</span> Jumped the shark here!</div>');
-  lines.push('<div class="card-hint">Click to open on IMDb</div>');
+  lines.push(pinned
+    ? `<a class="card-hint card-link" href="https://www.imdb.com/title/${imdbId(e.id)}/" target="_blank" ` +
+      `rel="noopener">Click to open on IMDb</a>`
+    : '<div class="card-hint">Click to open on IMDb</div>');
   return lines.join("");
 }
 
-let cardLink = null;   // the cell or title the card is showing details for
+let cardLink = null;      // the cell or title the card is showing details for
+let cardPinned = false;   // true when opened by a tap: stays open, has × and a link
+let lastPointer = "mouse";
 
-function showCard(link) {
+// Remember whether the latest press was a finger, pen, or mouse.
+document.addEventListener("pointerdown", ev => { lastPointer = ev.pointerType || "mouse"; }, true);
+const isTouch = () => lastPointer === "touch" || lastPointer === "pen";
+
+function showCard(link, pinned = false) {
   const e = state?.byId.get(Number(link.dataset.episode));
   if (!e) return;
   cardLink = link;
-  card.innerHTML = cardHtml(e);
+  cardPinned = pinned;
+  card.innerHTML = cardHtml(e, pinned);
+  card.classList.toggle("pinned", pinned);
+  card.setAttribute("role", pinned ? "dialog" : "tooltip");
   card.hidden = false;
+  if (pinned) card.querySelector(".card-close").addEventListener("click", hideCard);
+  positionCard();
+}
 
+function positionCard() {
   // Place above the cell if there's room, otherwise below; keep it on screen sideways.
-  const r = link.getBoundingClientRect();
+  const r = cardLink.getBoundingClientRect();
   const c = card.getBoundingClientRect();
   let top = r.top - c.height - 8;
   if (top < 8) top = r.bottom + 8;
@@ -909,21 +934,46 @@ function showCard(link) {
   card.style.left = `${left}px`;
 }
 
-function hideCard() { card.hidden = true; }
+function hideCard() {
+  card.hidden = true;
+  cardPinned = false;
+}
 
+// Mouse hover and keyboard focus show the card (phones also fire these on a tap; ignore them then).
 showContent.addEventListener("mouseover", ev => {
   const link = ev.target.closest("a[data-episode]");
-  if (link) showCard(link);
+  if (link && !isTouch() && !cardPinned) showCard(link);
 });
 showContent.addEventListener("mouseout", ev => {
+  if (cardPinned || isTouch()) return;
   if (ev.target.closest("a[data-episode]") && !ev.relatedTarget?.closest?.("a[data-episode]")) hideCard();
 });
 showContent.addEventListener("focusin", ev => {
   const link = ev.target.closest("a[data-episode]");
-  if (link) showCard(link);
+  if (link && !isTouch()) showCard(link);
 });
-showContent.addEventListener("focusout", hideCard);
-window.addEventListener("scroll", hideCard, true);
+showContent.addEventListener("focusout", () => { if (!cardPinned) hideCard(); });
+
+// A tap on an episode opens its card instead of going to IMDb. (The shark box's
+// "See the episode on IMDb" link still goes straight to IMDb.)
+showContent.addEventListener("click", ev => {
+  const link = ev.target.closest("a[data-episode]");
+  if (!link || !isTouch() || link.closest("#shark-detail")) return;
+  ev.preventDefault();
+  showCard(link, true);
+});
+
+// Tapping outside the card (and not on another episode) closes it.
+document.addEventListener("pointerdown", ev => {
+  if (cardPinned && !card.contains(ev.target) && !ev.target.closest?.("a[data-episode]")) hideCard();
+});
+
+// Scrolling: a hover card just goes away; a tapped card follows its cell.
+window.addEventListener("scroll", () => {
+  if (card.hidden) return;
+  if (cardPinned && cardLink?.isConnected) positionCard();
+  else hideCard();
+}, true);
 
 // =====================================================================
 // Footer: data date and "Refresh data"

@@ -25,11 +25,12 @@ episode's IMDb rating in a color-coded grid. Built for a family hackathon; hoste
 | 7 | TVmaze air dates and summaries in the hover card | ✅ Done |
 | — | Extra: search-box clear button (×), click-to-select, Escape to clear | ✅ Done |
 | — | Extra: one combined, collapsible shark box; scores removed from hover cards | ✅ Done |
+| — | Extra: phones & tablets: tap opens the card (with × and IMDb link) | ✅ Done |
 | 8 | Polish & README | ⏸ Waiting for the next round of tweaks |
 
 ### What's left
 - [ ] More tweaks (coming in the next few days).
-- [ ] Phone layout: the "not rated" legend label wraps awkwardly at phone width.
+- [x] Phone layout: the "not rated" legend label wrapped awkwardly at phone width (fixed).
 - [ ] README.md: how to run locally, rebuild data, publish, and change settings.
 - [ ] Final test pass. Your son tries to break it 🙂
 - [ ] When tuning is finished: set `showSharkSettingsPanel` to `false` in `site/config.json`
@@ -67,8 +68,14 @@ episode's IMDb rating in a color-coded grid. Built for a family hackathon; hoste
 - **Stretch colors toggle** (top right of the grid): maps the show's lowest rating to red and
   its highest to green, so differences within a show stand out. Remembered in the browser.
   The legend shows the range in use (e.g. 5.2 → 8.7).
-- **Hover** a cell: details card (1.2.1). **Click**: opens the episode on IMDb in a new tab.
-  Cells also work with the Tab key.
+- **Mouse:** hover a cell for the details card (1.2.1); click to open the episode on IMDb in a
+  new tab. Cells also work with the Tab key.
+- **Touch (phones, tablets):** tapping a cell (or a Top/Bottom 5 title) opens the details card
+  instead of going to IMDb. The card has a **×** in its upper right corner, and its
+  "Click to open on IMDb" line becomes the link. Tapping another cell switches cards; tapping
+  anywhere else closes it; the card follows its cell when scrolling. Each tap is checked for
+  finger vs. mouse, so touchscreen laptops work both ways.
+- On phones, the shark box hides its "details & settings" hint so the verdict has room.
 - Header above the grid: show name, years, overall rating, episode count, IMDb link.
 - Edge cases:
   - Unrated episodes → gray cell with "—".
@@ -287,3 +294,5 @@ Serves the site at http://127.0.0.1:8000. Changes go live by committing and push
 - **Search box:** × button, click-to-select, Escape to clear.
 - **Shark display:** verdict and settings combined into one collapsible box, open only when the
   show jumped the shark; past/next scores removed from hover cards.
+- **Touch devices:** tap opens the details card (with × and IMDb link) instead of following the
+  link; mouse behavior unchanged.
