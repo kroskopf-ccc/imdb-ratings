@@ -106,7 +106,8 @@ The past/next averages were shown on cards at first, then **removed** at your re
 - Uses all rated episodes. Ties go to the episode with more votes.
 
 ### 1.4 "Jumped the Shark" detector (shows with 30+ rated episodes) 🦈
-Settings (defaults): **past episodes = 10**, **future episodes = 10**, **rating drop = 1.0**.
+Settings (defaults): **past episodes = 10**, **future episodes = 10**, **rating drop = 0.6**
+(changed from 1.0 to 0.6 on October 11, 2026, by editing `config.json` on GitHub).
 
 - All rated, numbered episodes in airing order (season, then episode number).
 - For each episode: **past average** = the *past* episodes before it; **next average** = this
@@ -121,7 +122,7 @@ Settings (defaults): **past episodes = 10**, **future episodes = 10**, **rating 
     shark, the biggest drop found and where. Then the settings (1.4.1).
   - **Opens automatically** when a newly chosen show jumped the shark; starts **collapsed**
     otherwise. While you change settings it stays however you left it.
-- Results so far with default settings:
+- Results with the original 1.0 drop (with 0.6, Happy Days now jumps at S7E24):
   - *The Office (US)*: jumped at S7E27 "Search Committee, Part 2", right after Michael left
     (drop 1.08).
   - *Breaking Bad*: no shark.
@@ -135,14 +136,15 @@ Settings (defaults): **past episodes = 10**, **future episodes = 10**, **rating 
 2. **`site/config.json` (the defaults for everyone):**
    ```json
    {
-     "shark": { "pastEpisodes": 10, "futureEpisodes": 10, "minDrop": 1.0 },
+     "shark": { "pastEpisodes": 10, "futureEpisodes": 10, "minDrop": 0.6 },
      "minEpisodesForStats": 30,
      "showSharkSettingsPanel": true,
      "githubRepo": "kroskopf-ccc/imdb-ratings"
    }
    ```
    Edit it on the GitHub website (pencil icon → change → "Commit changes"). The site
-   republishes itself in under a minute. Setting `showSharkSettingsPanel` to `false` hides the
+   republishes itself in under a minute. (Edits made on GitHub are pulled into this PC's copy
+   before the next local change is pushed.) Setting `showSharkSettingsPanel` to `false` hides the
    settings (the verdict and explanation stay) and makes everyone use the file's values.
 
 ### 1.5 Footer: data date and refresh
