@@ -195,17 +195,46 @@ function showMessage(text) {
 function choose(show) {
   selected = show;
   input.value = `${show.title} (${yearRange(show)})`;
+  updateClearButton();
   closeList();
   showMessage("");
   showSelected(show);
 }
 
+// The "×" button empties the box for the next search. The show on screen stays until a new
+// one is chosen.
+const clearButton = document.getElementById("search-clear");
+
+function updateClearButton() {
+  clearButton.hidden = !input.value;
+}
+
+function clearSearch() {
+  input.value = "";
+  selected = null;
+  suggestions = [];
+  closeList();
+  showMessage("");
+  updateClearButton();
+  input.focus();
+}
+
+// mousedown + preventDefault keeps the focus in the search box
+clearButton.addEventListener("mousedown", e => e.preventDefault());
+clearButton.addEventListener("click", clearSearch);
+
 input.addEventListener("input", () => {
   selected = null;          // any edit means the box no longer holds a chosen show
   showMessage("");
+  updateClearButton();
   suggestions = search(input.value);
   active = -1;
   renderSuggestions();
+});
+
+// Clicking into a box that holds a chosen show selects its name, so typing replaces it.
+input.addEventListener("click", () => {
+  if (selected && input.selectionStart === input.selectionEnd) input.select();
 });
 
 input.addEventListener("keydown", e => {
@@ -218,7 +247,9 @@ input.addEventListener("keydown", e => {
     e.preventDefault();
     if (open) setActive(active <= 0 ? suggestions.length - 1 : active - 1);
   } else if (e.key === "Escape") {
-    closeList();
+    // First Escape closes the suggestions; the next one clears the box.
+    if (!list.hidden) closeList();
+    else if (input.value) clearSearch();
   }
 });
 
