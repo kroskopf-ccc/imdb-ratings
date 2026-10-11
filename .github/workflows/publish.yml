@@ -30,16 +30,16 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
       - name: Reuse last built data (code/config changes only)
         id: restore
         if: github.event_name == 'push'
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: site/data
           key: imdb-data-none                   # never an exact match...
@@ -52,7 +52,7 @@ jobs:
 
       - name: Save data for future publishes
         if: steps.build.outcome == 'success'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: site/data
           key: imdb-data-${{ github.run_id }}
@@ -62,7 +62,7 @@ jobs:
           cat site/data/meta.json; echo
           du -sh site/data
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
 
@@ -74,4 +74,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
