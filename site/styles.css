@@ -129,6 +129,19 @@ main {
 /* ---------- selected show ---------- */
 
 .show { margin-top: 32px; }
+.show-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.network {
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: help;
+}
+.network[hidden] { display: none; }
 .show h2 { margin: 0; font-size: 1.5rem; }
 .show h3 { margin: 32px 0 4px; font-size: 1.1rem; }
 .show-info { margin: 4px 0 16px; color: var(--muted); }

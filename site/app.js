@@ -562,6 +562,7 @@ async function showSelected(show) {
   showContent.hidden = true;
   document.getElementById("show-title").textContent = show.title;
   renderShowInfo(show);
+  addNetwork(show);   // fills in next to the title when Wikidata/TVmaze answer
   setStatus("Loading episodes…");
 
   let episodes;
@@ -814,7 +815,10 @@ function loadTvmaze(showId) {
           summary: htmlToText(ep.summary),
         });
       }
-      return { url: tvShow.url, episodes };
+      // TVmaze lists one network per show (the latest, for shows that moved); it's the
+      // fallback when Wikidata has no network for a show.
+      const network = tvShow.network?.name || tvShow.webChannel?.name || null;
+      return { url: tvShow.url, episodes, network };
     })();
     tvmazeShows.set(showId, promise);
     promise.catch(() => tvmazeShows.delete(showId));   // allow a retry after a failure
@@ -845,6 +849,137 @@ async function addTvmazeDetails(show) {
     if (info) { e.airdate = info.airdate; e.summary = info.summary; }
   }
   if (!card.hidden && cardLink?.isConnected) showCard(cardLink, cardPinned);   // update an open card
+}
+
+// =====================================================================
+// Network (shown next to the show title)
+//
+// Wikidata (the free database behind Wikipedia) records every network a show aired on, often
+// with start dates, so it knows Brooklyn Nine-Nine began on Fox and moved to NBC. If Wikidata
+// has nothing for a show, TVmaze's single network is used instead.
+// =====================================================================
+
+const networks = new Map();   // show id -> promise of { text, tooltip } or null
+
+// Long official names that Wikidata doesn't give a short form for
+const NETWORK_SHORT_NAMES = {
+  "American Broadcasting Company": "ABC",
+  "Fox Broadcasting Company": "Fox",
+  "Columbia Broadcasting System": "CBS",
+  "National Broadcasting Company": "NBC",
+  "Public Broadcasting Service": "PBS",
+  "The CW Television Network": "The CW",
+  "Home Box Office": "HBO",
+};
+
+const WIKIDATA_API = "https://www.wikidata.org/w/api.php?format=json&origin=*&";
+
+async function wikidataGet(params) {
+  const resp = await fetch(WIKIDATA_API + params);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp.json();
+}
+
+/**
+ * The networks a show aired on, from Wikidata, in three quick lookups:
+ * IMDb ID -> the show's Wikidata item -> its "original broadcaster" entries (with start
+ * dates) -> each network's English name and short name.
+ * Returns [{ name, start, precision }]; start is "YYYY-MM-DD" or null.
+ */
+async function wikidataNetworks(showId) {
+  const found = await wikidataGet("action=query&list=search&srlimit=1&srsearch=" +
+                                  encodeURIComponent(`haswbstatement:P345=${imdbId(showId)}`));
+  const item = found.query?.search?.[0]?.title;
+  if (!item) return [];
+
+  const show = await wikidataGet(`action=wbgetentities&props=claims&ids=${item}`);
+  const claims = show.entities?.[item]?.claims?.P449 || [];   // P449 = original broadcaster
+  const entries = claims.map(c => {
+    const time = c.qualifiers?.P580?.[0]?.datavalue?.value;  // P580 = start time
+    return {
+      id: c.mainsnak?.datavalue?.value?.id,
+      // "+2013-00-00T00:00:00Z" -> "2013-01-01" (unknown month/day become 01 for sorting)
+      start: time ? time.time.slice(1, 11).replace(/-00/g, "-01") : null,
+      precision: time?.precision ?? null,                    // 9 = year, 10 = month, 11 = day
+    };
+  }).filter(e => e.id);
+  if (!entries.length) return [];
+
+  const ids = [...new Set(entries.map(e => e.id))].join("|");
+  const nets = await wikidataGet(`action=wbgetentities&props=labels|claims&languages=en&ids=${ids}`);
+  const byNet = new Map();   // one entry per network, keeping its earliest start
+  for (const e of entries) {
+    const ent = nets.entities?.[e.id];
+    const label = ent?.labels?.en?.value;
+    if (!label) continue;
+    const short = (ent.claims?.P1813 || [])                   // P1813 = short name
+      .map(c => c.mainsnak?.datavalue?.value).find(v => v?.language === "en")?.text;
+    const name = short || NETWORK_SHORT_NAMES[label] || label;
+    const prev = byNet.get(e.id);
+    if (!prev || (e.start && (!prev.start || e.start < prev.start))) {
+      byNet.set(e.id, { name, start: e.start, precision: e.precision });
+    }
+  }
+  return [...byNet.values()];
+}
+
+/** A Wikidata start date, only as precise as Wikidata knows it: "2013", "Jan 2013", or a full date. */
+function formatStart({ start, precision }) {
+  const d = new Date(start + "T00:00:00Z");
+  if (precision != null && precision <= 9) return String(d.getUTCFullYear());
+  if (precision === 10) return d.toLocaleDateString("en-US", { year: "numeric", month: "long", timeZone: "UTC" });
+  return formatDate(start);
+}
+
+/**
+ * Networks -> display text. Dated networks are in date order, joined with "→" (a move).
+ * Undated ones come first (usually the original, before a dated move) — e.g. "FX → FXX".
+ * If none are dated, they're joined with "/" (e.g. a co-production, "Sky Atlantic / HBO").
+ */
+function describeNetworks(list) {
+  const dated = list.filter(n => n.start).sort((a, b) => a.start.localeCompare(b.start));
+  const undated = list.filter(n => !n.start);
+  let parts;
+  if (!dated.length) {
+    parts = [undated.map(n => n.name).join(" / ")];
+  } else {
+    parts = [...(undated.length ? [undated.map(n => n.name).join(" / ")] : []), ...dated.map(n => n.name)];
+  }
+  if (parts.length > 3) parts = [parts[0], "…", parts[parts.length - 1]];
+  const tooltip = "Aired on " + [...undated, ...dated].map(n =>
+    n.start ? `${n.name} (from ${formatStart(n)})` : n.name).join(dated.length ? ", then " : ", ") +
+    " · Source: Wikidata";
+  return { text: parts.join(" → "), tooltip };
+}
+
+function loadNetwork(showId) {
+  if (!networks.has(showId)) {
+    const promise = (async () => {
+      try {
+        const list = await wikidataNetworks(showId);
+        if (list.length) return describeNetworks(list);
+      } catch (err) {
+        console.warn("Wikidata network not loaded:", err);
+      }
+      try {
+        const tv = await loadTvmaze(showId);
+        if (tv?.network) return { text: tv.network, tooltip: `Network: ${tv.network} · Source: TVmaze` };
+      } catch { /* no network then */ }
+      return null;
+    })();
+    networks.set(showId, promise);
+  }
+  return networks.get(showId);
+}
+
+async function addNetwork(show) {
+  const el = document.getElementById("show-network");
+  el.hidden = true;
+  const net = await loadNetwork(show.id);
+  if (!net || currentShowId !== show.id) return;
+  el.textContent = net.text;
+  el.title = net.tooltip;
+  el.hidden = false;
 }
 
 function formatDate(isoDate) {

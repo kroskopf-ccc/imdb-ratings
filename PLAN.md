@@ -26,6 +26,7 @@ episode's IMDb rating in a color-coded grid. Built for a family hackathon; hoste
 | — | Extra: search-box clear button (×), click-to-select, Escape to clear | ✅ Done |
 | — | Extra: one combined, collapsible shark box; scores removed from hover cards | ✅ Done |
 | — | Extra: phones & tablets: tap opens the card (with × and IMDb link) | ✅ Done |
+| — | Extra: network pill next to the show title (Wikidata, TVmaze fallback) | ✅ Done |
 | 8 | Polish & README | ⏸ Waiting for the next round of tweaks |
 
 ### What's left
@@ -77,6 +78,18 @@ episode's IMDb rating in a color-coded grid. Built for a family hackathon; hoste
   finger vs. mouse, so touchscreen laptops work both ways.
 - On phones, the shark box hides its "details & settings" hint so the verdict has room.
 - Header above the grid: show name, years, overall rating, episode count, IMDb link.
+- **Network pill** to the right of the show name, e.g. **NBC**, **Netflix**, **Fox → NBC**:
+  - From **Wikidata** ("original broadcaster" with start dates), looked up by IMDb ID in three
+    quick requests (~0.3–0.6 s). Long names are shortened (ABC, Fox, CBS, …).
+  - Shows that moved networks show the order: dated networks in date order with "→"; an
+    undated network listed alongside a dated one is treated as the original ("FX → FXX").
+    Several undated networks (co-productions) are joined with "/" ("HBO / Sky Atlantic").
+  - Hovering the pill shows details, e.g. "Aired on Fox (from September 17, 2013), then NBC
+    (from January 10, 2019) · Source: Wikidata".
+  - If Wikidata has nothing, **TVmaze's** network is used (note: TVmaze lists the *latest*
+    network for shows that moved). If neither has one, the pill is hidden.
+  - Wikidata's query service (SPARQL) was tried first but sometimes took 4–10+ seconds, so the
+    page uses Wikidata's regular lookup API instead.
 - Edge cases:
   - Unrated episodes → gray cell with "—".
   - Seasons of different lengths → blank space after shorter seasons.
@@ -298,3 +311,5 @@ Serves the site at http://127.0.0.1:8000. Changes go live by committing and push
   show jumped the shark; past/next scores removed from hover cards.
 - **Touch devices:** tap opens the details card (with × and IMDb link) instead of following the
   link; mouse behavior unchanged.
+- **Network:** Wikidata (true original network, shows moves as "Fox → NBC") with TVmaze as the
+  fallback, rather than TVmaze alone (which lists the latest network).

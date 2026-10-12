@@ -28,7 +28,10 @@
     </form>
 
     <section id="show" class="show" hidden>
-      <h2 id="show-title"></h2>
+      <div class="show-heading">
+        <h2 id="show-title"></h2>
+        <span id="show-network" class="network" hidden></span>
+      </div>
       <p id="show-info" class="show-info"></p>
       <p id="show-status" class="loading" hidden></p>
 
@@ -87,7 +90,8 @@
        rel="noopener">IMDb's public datasets</a>, for personal, non-commercial use.
        Air dates and summaries from <a href="https://www.tvmaze.com/" target="_blank"
        rel="noopener">TVmaze</a> (<a href="https://creativecommons.org/licenses/by-sa/4.0/"
-       target="_blank" rel="noopener">CC BY-SA</a>).</p>
+       target="_blank" rel="noopener">CC BY-SA</a>). Networks from
+       <a href="https://www.wikidata.org/" target="_blank" rel="noopener">Wikidata</a> and TVmaze.</p>
   </footer>
 
   <div id="refresh-popup" class="popup" role="status" aria-live="polite" hidden>
